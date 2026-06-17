@@ -1,0 +1,186 @@
+import { useEffect, useState } from 'react'
+import { supabase } from '../lib/supabase'
+import { useAuth } from '../hooks/useAuth'
+import type { Medication, Condition } from '../lib/types'
+import { Pill, Plus, X, CreditCard as Edit2, Trash2 } from 'lucide-react'
+
+const TIME_OPTIONS = ['Morning', 'Afternoon', 'Evening', 'Night']
+const emptyForm = { name: '', dosage: '', frequency: '', time_of_day: [] as string[], condition_id: '', notes: '', start_date: '', end_date: '' }
+
+export default function MedicationsPage() {
+  const { user } = useAuth()
+  const [medications, setMedications] = useState<Medication[]>([])
+  const [conditions, setConditions] = useState<Condition[]>([])
+  const [loading, setLoading] = useState(true)
+  const [showForm, setShowForm] = useState(false)
+  const [editingId, setEditingId] = useState<string | null>(null)
+  const [form, setForm] = useState(emptyForm)
+
+  const load = async () => {
+    if (!user) return
+    const [medRes, condRes] = await Promise.all([
+      supabase.from('medications').select('*').eq('user_id', user.id).order('created_at', { ascending: false }),
+      supabase.from('conditions').select('*').eq('user_id', user.id).order('name'),
+    ])
+    setMedications(medRes.data ?? []); setConditions(condRes.data ?? []); setLoading(false)
+  }
+
+  useEffect(() => { load() }, [user])
+
+  const toggleTime = (time: string) => {
+    setForm((f) => ({ ...f, time_of_day: f.time_of_day.includes(time) ? f.time_of_day.filter((t) => t !== time) : [...f.time_of_day, time] }))
+  }
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault()
+    if (!user) return
+    const payload = { name: form.name, dosage: form.dosage, frequency: form.frequency, time_of_day: form.time_of_day, condition_id: form.condition_id || null, notes: form.notes || null, start_date: form.start_date || null, end_date: form.end_date || null }
+    if (editingId) {
+      await supabase.from('medications').update(payload).eq('id', editingId).eq('user_id', user.id)
+    } else {
+      await supabase.from('medications').insert({ ...payload, user_id: user.id })
+    }
+    setForm(emptyForm); setShowForm(false); setEditingId(null); load()
+  }
+
+  const startEdit = (m: Medication) => {
+    setForm({ name: m.name, dosage: m.dosage, frequency: m.frequency, time_of_day: m.time_of_day, condition_id: m.condition_id ?? '', notes: m.notes ?? '', start_date: m.start_date ?? '', end_date: m.end_date ?? '' })
+    setEditingId(m.id); setShowForm(true)
+  }
+
+  const handleDelete = async (id: string) => {
+    if (!user || !confirm('Are you sure you want to delete this medication?')) return
+    await supabase.from('medications').delete().eq('id', id).eq('user_id', user.id); load()
+  }
+
+  const cancelForm = () => { setForm(emptyForm); setShowForm(false); setEditingId(null) }
+
+  if (loading) {
+    return <div className="flex items-center justify-center py-20"><div className="animate-spin rounded-full h-10 w-10 border-4 border-primary-200 border-t-primary-600" /></div>
+  }
+
+  return (
+    <div className="space-y-6">
+      <div className="flex items-center justify-between">
+        <div>
+          <h1 className="text-3xl font-bold text-neutral-900">Medications</h1>
+          <p className="text-lg text-neutral-500 mt-1">Keep track of your prescriptions and supplements</p>
+        </div>
+        <button onClick={() => { setForm(emptyForm); setEditingId(null); setShowForm(true) }}
+          className="flex items-center gap-2 px-5 py-3 text-base font-semibold text-white bg-primary-600 rounded-xl hover:bg-primary-700 transition-colors">
+          <Plus className="w-5 h-5" /> Add Medication
+        </button>
+      </div>
+
+      {showForm && (
+        <div className="fixed inset-0 bg-black/40 z-50 flex items-center justify-center p-4" onClick={cancelForm}>
+          <div className="bg-white rounded-2xl p-8 w-full max-w-lg shadow-xl max-h-[90vh] overflow-y-auto" onClick={(e) => e.stopPropagation()}>
+            <div className="flex items-center justify-between mb-6">
+              <h2 className="text-2xl font-semibold text-neutral-900">{editingId ? 'Edit Medication' : 'Add Medication'}</h2>
+              <button onClick={cancelForm} className="p-2 hover:bg-neutral-100 rounded-lg"><X className="w-6 h-6 text-neutral-400" /></button>
+            </div>
+            <form onSubmit={handleSubmit} className="space-y-5">
+              <div>
+                <label className="block text-base font-medium text-neutral-700 mb-2">Medication Name</label>
+                <input type="text" required value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })}
+                  className="w-full px-4 py-3 text-lg border border-neutral-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-primary-500" placeholder="e.g., Metformin" />
+              </div>
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-base font-medium text-neutral-700 mb-2">Dosage</label>
+                  <input type="text" required value={form.dosage} onChange={(e) => setForm({ ...form, dosage: e.target.value })}
+                    className="w-full px-4 py-3 text-lg border border-neutral-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-primary-500" placeholder="e.g., 500mg" />
+                </div>
+                <div>
+                  <label className="block text-base font-medium text-neutral-700 mb-2">Frequency</label>
+                  <input type="text" required value={form.frequency} onChange={(e) => setForm({ ...form, frequency: e.target.value })}
+                    className="w-full px-4 py-3 text-lg border border-neutral-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-primary-500" placeholder="e.g., Twice daily" />
+                </div>
+              </div>
+              <div>
+                <label className="block text-base font-medium text-neutral-700 mb-2">Time of Day</label>
+                <div className="flex flex-wrap gap-2">
+                  {TIME_OPTIONS.map((t) => (
+                    <button key={t} type="button" onClick={() => toggleTime(t)}
+                      className={`px-4 py-2 text-base font-medium rounded-xl border transition-colors ${form.time_of_day.includes(t) ? 'bg-primary-50 text-primary-700 border-primary-200' : 'bg-white text-neutral-600 border-neutral-300 hover:bg-neutral-50'}`}>
+                      {t}
+                    </button>
+                  ))}
+                </div>
+              </div>
+              {conditions.length > 0 && (
+                <div>
+                  <label className="block text-base font-medium text-neutral-700 mb-2">Related Condition</label>
+                  <select value={form.condition_id} onChange={(e) => setForm({ ...form, condition_id: e.target.value })}
+                    className="w-full px-4 py-3 text-lg border border-neutral-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-primary-500">
+                    <option value="">None</option>
+                    {conditions.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
+                  </select>
+                </div>
+              )}
+              <div>
+                <label className="block text-base font-medium text-neutral-700 mb-2">Notes</label>
+                <textarea value={form.notes} onChange={(e) => setForm({ ...form, notes: e.target.value })}
+                  className="w-full px-4 py-3 text-lg border border-neutral-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-primary-500" rows={2} placeholder="Any special instructions" />
+              </div>
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-base font-medium text-neutral-700 mb-2">Start Date</label>
+                  <input type="date" value={form.start_date} onChange={(e) => setForm({ ...form, start_date: e.target.value })}
+                    className="w-full px-4 py-3 text-lg border border-neutral-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-primary-500" />
+                </div>
+                <div>
+                  <label className="block text-base font-medium text-neutral-700 mb-2">End Date</label>
+                  <input type="date" value={form.end_date} onChange={(e) => setForm({ ...form, end_date: e.target.value })}
+                    className="w-full px-4 py-3 text-lg border border-neutral-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-primary-500" />
+                </div>
+              </div>
+              <button type="submit" className="w-full py-3 px-6 text-lg font-semibold text-white bg-primary-600 rounded-xl hover:bg-primary-700 transition-colors">
+                {editingId ? 'Save Changes' : 'Add Medication'}
+              </button>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {medications.length === 0 ? (
+        <div className="text-center py-16 bg-white rounded-2xl border border-neutral-200">
+          <Pill className="w-16 h-16 text-neutral-300 mx-auto mb-4" />
+          <p className="text-xl text-neutral-500">No medications added yet</p>
+          <p className="text-base text-neutral-400 mt-2">Click "Add Medication" to get started</p>
+        </div>
+      ) : (
+        <div className="grid md:grid-cols-2 gap-4">
+          {medications.map((m) => {
+            const condition = conditions.find((c) => c.id === m.condition_id)
+            return (
+              <div key={m.id} className="bg-white rounded-2xl border border-neutral-200 p-6 hover:shadow-md transition-shadow">
+                <div className="flex items-start justify-between mb-3">
+                  <div>
+                    <h3 className="text-xl font-semibold text-neutral-900">{m.name}</h3>
+                    <p className="text-base text-neutral-600">{m.dosage} — {m.frequency}</p>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <button onClick={() => startEdit(m)} className="p-2 text-neutral-400 hover:text-primary-600 hover:bg-primary-50 rounded-lg transition-colors"><Edit2 className="w-5 h-5" /></button>
+                    <button onClick={() => handleDelete(m.id)} className="p-2 text-neutral-400 hover:text-error-600 hover:bg-error-50 rounded-lg transition-colors"><Trash2 className="w-5 h-5" /></button>
+                  </div>
+                </div>
+                {m.time_of_day.length > 0 && (
+                  <div className="flex flex-wrap gap-2 mb-3">
+                    {m.time_of_day.map((t) => <span key={t} className="px-3 py-1 text-sm font-medium bg-primary-50 text-primary-700 rounded-lg">{t}</span>)}
+                  </div>
+                )}
+                {condition && <p className="text-sm text-neutral-500 mb-2">For: {condition.name}</p>}
+                {m.notes && <p className="text-sm text-neutral-500 mb-2">{m.notes}</p>}
+                <div className="flex gap-4 text-sm text-neutral-400">
+                  {m.start_date && <span>Start: {m.start_date}</span>}
+                  {m.end_date && <span>End: {m.end_date}</span>}
+                </div>
+              </div>
+            )
+          })}
+        </div>
+      )}
+    </div>
+  )
+}
